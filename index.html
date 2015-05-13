@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+{% autoescape true %}
+<html>
+  <!-- [START head_html] -->
+  <head>
+    <link type="text/css" rel="stylesheet" href="/stylesheets/main.css" />
+      <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js" type="text/javascript"></script>
+      <script type="text/javascript">
+
+        // Counts how many times spacebar has been held down.
+        var space_count = 0;
+        // Shows current spacebar holding count
+        var current_space = -1;
+        // An array holding all times laughs have started (spacebars pressed)
+        var laugh_starts = [];
+        // An array holding all times laughs have ended (spacebars released)
+        var laugh_ends = [];
+        // Total times someone laughed at every 250ms of the excerpt
+        var total_laughs = [{{total_laughs}}];
+        // Number of total listeners for each excerpt
+        var total_listens = {{total_listens}};
+        // Size of the smiley that appears when a laugh is on the way.
+        var smiley_size = 100;
+        // Shows if spacebar is currently down
+        var space_down = 0;
+
+        // Function runs when the excerpt has ended or the skip button ("s") has been pressed.
+        function next() {
+
+          // Create laugh_array, an array with an item for each 250ms of the excerpt. It holds zeros for when user wasn't laughing and ones for where he was.
+          var my_audio = document.getElementById('excerpt');
+          var laugh_array = new Array(Math.ceil(my_audio.duration)*4);
+          if (laugh_ends.length < laugh_starts.length) {
+            laugh_ends.push(my_audio.duration);
+          }
+          for (i = 0; i < laugh_array.length; i++) {
+            laugh_array[i] = 0;
+            for (j = 0; j < laugh_starts.length; j++) {
+              if (i/4 > laugh_starts[j] && i/4 < laugh_ends[j]) {
+                laugh_array[i] = 1;
+              }
+            }
+          }
+
+          // Create json_data - the session data holding the laugh array and the URL and post it to be logged in the server.
+          var excerpt_url_split = document.getElementById('excerpt').currentSrc.split('audio/');
+          var excerpt_url = 'audio/' + excerpt_url_split[excerpt_url_split.length - 1];
+          console.log(excerpt_url);
+          var json_data = JSON.stringify({
+            "laugh_array": laugh_array,
+            "audio_url": excerpt_url
+          });
+          $.ajax({
+            type: "POST",
+            url: "/logsession",
+            dataType: "JSON",
+            data: {
+              "json": json_data,
+            }
+          });
+          
+          // Get the data for the next excerpt from the server (the url for the audio, the laugh_array and the number of listens logged to it).
+          var audio_data;
+          $.ajax({
+            url: "/audioloader",
+            async: false,
+            success: function(data) {
+              audio_data = JSON.parse(data);
+              console.log(audio_data.audio_url);
+            }
+          });
+          
+          // Make changes to global vars accordingly.
+          my_audio.src = audio_data.audio_url;
+          total_laughs = [];
+          console.log(audio_data);
+          total_laughs_str = audio_data.total_laughs.split(',');
+          for (i = 0; i < total_laughs_str.length; i++) {
+            total_laughs.push(parseInt(total_laughs_str[i]));
+          }
+          total_listens = audio_data.total_listens;
+          space_count = 0;
+          current_space = -1;
+          laugh_starts = [];
+          laugh_ends = [];
+          smiley_size = 100;
+          space_down = 0;
+        }
+
+        // Show smiley on screen when spacebar is held down
+        function showSmiley() {
+          if (current_space != space_count) {
+            current_space = space_count;
+            var my_audio = document.getElementById('excerpt');
+            document.getElementById("smiley").style.display='block';
+            var starttime = my_audio.currentTime;
+            document.getElementById('starttime').innerHTML = "start: " + starttime.toString();
+            laugh_starts.push(starttime);
+          }
+        }
+
+        // Remove smiley when spacebar is let go
+        function hideSmiley() {
+          var my_audio = document.getElementById('excerpt');
+          document.getElementById("smiley").style.display='none';
+          var endtime = my_audio.currentTime;
+          document.getElementById('endtime').innerHTML = "end: " + endtime.toString();
+          space_count = space_count + 1;
+          laugh_ends.push(endtime);
+          var allclicks = document.getElementById('allclicks').innerHTML = laugh_starts.toString() + "|" + laugh_ends.toString();
+        }
+
+        // Pause excerpt and turn off laugh track when "p" key is pressed.
+        function pauseExcerpt() {
+            var my_audio = document.getElementById('excerpt');
+            var laugh_track = document.getElementById('laugh_track');
+            if (my_audio.paused) {
+              my_audio.play();
+            } else {
+              my_audio.pause();
+              laugh_track.volume = 0;
+            }
+        }
+
+        // The function to run when a key is held down.
+        function keyDown(e) {
+          // If spacebar is pressed show smiley on screen.
+          if (e.keyCode == 32) {
+            space_down = 1;
+            showSmiley();
+            var laugh_track = document.getElementById('laugh_track');
+            laugh_track.volume = 0.5;
+          }
+        }
+
+        // The function to run when a key is let go
+        function keyUp(e) {
+          // If spacebar is let go hide smiley from screen
+          if (e.keyCode == 32) {
+            space_down = 0;
+            hideSmiley();
+            var laugh_track = document.getElementById('laugh_track');
+            laugh_track.volume = 0;
+          }
+
+          // If "p" button is let go pause the audio
+          if (e.keyCode == 80) {
+            pauseExcerpt();
+          }
+
+          // If "s" button is let go skip to next excerpt
+          if (e.keyCode == 83) {
+            next();
+          }
+        }
+
+        // The function that starts running on pageload and keeps on running in the background.
+        function backgroundFunction(){
+
+            var my_audio = document.getElementById('excerpt');
+            var laugh_buffer = 0.1;
+
+            // Run the 'next' function once the excerpt has ended.
+            my_audio.addEventListener('ended', next, false);
+
+            // Set the laugh track to run in a loop starting from a random location. Set starting volume to 0
+            var laugh_track = document.getElementById('laugh_track');
+            laugh_track.currentTime = laugh_track.duration * Math.random();
+            laugh_track.loop = true;
+            var volume_num = 0;
+            laugh_track.volume = 0;
+
+            // Add event listeners for key presses.
+            window.addEventListener("keydown", keyDown, false);
+            window.addEventListener("keyup", keyUp, false);
+
+            // Set up audio context to track the frequency data for the excerpt.
+            var excerpt_ctx = new AudioContext();
+            var audio_src = excerpt_ctx.createMediaElementSource(my_audio);
+            var analyser = excerpt_ctx.createAnalyser();
+            audio_src.connect(analyser);
+            var frequency_data = new Uint8Array(analyser.frequencyBinCount);
+            analyser.connect(excerpt_ctx.destination);
+
+            // Create frequency bars for one out of every 50 frequencies.
+            for (i = 0; i < frequency_data.length; i+=50) {
+              var fbar = document.createElement('div');
+              fbar.id = "fbar" + i.toString();
+              fbar.className = "fbar";
+              document.body.appendChild(fbar);
+            }
+
+            // Create abimation
+            function renderFrame() {
+              requestAnimationFrame(renderFrame);
+
+              // Update the frequency bar sizes every frame according to the current frequency spread.
+              analyser.getByteFrequencyData(frequency_data);
+              for (i = 0; i < frequency_data.length; i+=50) {
+                document.getElementById("fbar" + i.toString()).style.width = frequency_data[i].toString() + "px";
+                document.getElementById("fbar" + i.toString()).style.height = frequency_data[i].toString() + "px";
+              }
+
+              // Change the laugh track volume according to the laugh history of the current quarter second.
+              if (space_down == 0) {
+                if (total_laughs.length > Math.floor(my_audio.currentTime*4)) { 
+                  if (total_laughs[Math.floor(my_audio.currentTime*4)] != volume_num) {
+                    volume_num = total_laughs[Math.floor(my_audio.currentTime*4)];
+                    if (total_listens > 0) {
+                      laugh_track.volume = (volume_num / total_listens)*0.5;
+                    } else {
+                      laugh_track.volume = 0;
+                    }
+                  }
+                } else {
+                  volume_num = 0;
+                  laugh_track.volume = 0;
+                }
+              } else {
+                volume_num = 0;
+              }
+
+              // Reset the laugh track when it's getting to it's end so that there is no skip in the laugh track when it reaches its end.
+              if (laugh_track.currentTime > laugh_track.duration - laugh_buffer) {
+                laugh_track.currentTime = 0;
+              }
+
+              // Increase smiley size so long the space bar is held down and reset its size when its let go.
+              if (space_down == 1) {
+                smiley_size += 1;
+                document.getElementById("smiley").style.fontSize=smiley_size.toString()+'%';
+              } else {
+                smiley_size = 100;
+              }
+            }
+
+            renderFrame();
+        }
+    </script>
+  </head>
+  <!-- [END head_html] -->
+  <body onload="backgroundFunction()">
+
+    <audio id="excerpt" autoplay>
+      <source src="{{audio_url}}" type="audio/mpeg">
+      Your browser does not support the audio tag.
+    </audio>
+
+    <audio id="laugh_track" autoplay loop>
+      <source src="audio/laughTrack.mp3" type="audio/mpeg">
+      Your browser does not support the audio tag.
+    </audio>
+
+    <p class="emoticon" id="smiley" hidden="hidden">
+      :)
+    </p>
+
+    <div class="controls">
+      <h1> Controls: </h1>
+      <p>SPACE - laugh | P - pause/unpause | S - skip ahead</p>
+    </div>
+
+    <div class="debug" hidden="hidden">
+      <hr>
+      <p id="starttime">
+        start: 0
+      </p>
+      <p id="endtime">
+        end: 0
+      </p>
+      <p id="allclicks">
+        Hold
+      </p>
+      <p>
+        Total Laughs: <br>
+        {{total_laughs}} <br>
+        Total Listens: {{total_listens}}
+      </p>
+    </div>
+
+  </body>
+</html>
+{% endautoescape %}

@@ -1,0 +1,4 @@
+cron:
+- description: aggregate sessions data
+  url: /aggregate
+  schedule: every 1 hours synchronized
